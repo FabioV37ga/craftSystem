@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#070a09" />
+  <meta name="description" content="CraftSystem — seu mundo, suas regras. Baixe o launcher e o modpack oficial." />
+  <title>CraftSystem — Explore sem limites</title>
+  <link rel="preload" as="image" href="/src/assets/images/craftsystem-hero.png" />
+  <link rel="stylesheet" href="/src/css/style.css" />
+</head>
+
+<body>
+  <div class="noise" aria-hidden="true"></div>
+
+  <header class="topbar">
+    <a class="brand" href="#inicio" aria-label="CraftSystem — início">
+      <span class="brand__cube" aria-hidden="true"><i></i></span>
+      <span>CRAFT<span>SYSTEM</span></span>
+      </a>
+
+      <nav class="nav" aria-label="Navegação principal">
+        <a href="#host-switch">Host Switch</a>
+        <span class="status">
+          <span></span> CraftSystem
+        </span>
+    </nav>
+  </header>
+
+  <main id="inicio">
+    <section class="hero">
+      <div class="hero__image" aria-hidden="true"></div>
+      <div class="hero__shade" aria-hidden="true"></div>
+
+      <div class="hero__content">
+        <div class="eyebrow"><span></span> Nenhum boliviano foi machucado na produção desse modpack.</div>
+          <h1>CRAFTSYSTEM:<br /><em>MODPACK</em></h1>
+          <p>Sistema de controle do modpack CraftSystem.</p>
+          <p class="credits">Sistema por Fábio Veiga</p>
+
+          <div class="actions" id="downloads">
+            <a class="button button--primary" href="https://github.com/PolyMC/PolyMC/releases/download/7.1/PolyMC-Windows-Setup-amd64-7.1.exe">
+              <span class="button__icon" aria-hidden="true">↓</span>
+              <span><small>BAIXAR PARA WINDOWS</small>LAUNCHER</span>
+            </a>
+            <button class="button button--secondary" type="button" data-tutorial-open>
+              <span class="button__icon" aria-hidden="true">◆</span>
+              <span><small>VERSÃO MAIS RECENTE</small>MODPACK</span>
+            </button>
+            <a class="button button--firewall" id="firewall-download-link" href="/" download="liberar_ipv4_firewall.bat">
+              <span class="button__icon" aria-hidden="true">↓</span>
+              <span><small>WINDOWS</small>CONFIGURAR FIREWALL</span>
+            </a>
+            <button class="button button--server" type="button" data-server-copy>
+              <span class="button__icon" aria-hidden="true">→</span>
+              <span><small>MULTIPLAYER</small>ENTRAR NO SERVIDOR</span>
+            </button>
+            <a class="button button--terminal" id="terminal-access-link" href="/">
+              <span class="button__icon" aria-hidden="true">&gt;_</span>
+              <span><small>ACESSO RÁPIDO</small>TERMINAL</span>
+            </a>
+        </div>
+
+        <div class="meta" aria-label="Informações de compatibilidade">
+          <span><b>1.19</b> VERSÃO</span>
+          <span><b>400+</b> MODS</span>
+          <span><b>24/7</b> ONLINE</span>
+        </div>
+      </div>
+
+      <div class="scroll-hint" aria-hidden="true"><span></span> EXPLORE</div>
+    </section>
+
+    <section class="host-switch" id="host-switch" aria-labelledby="host-switch-title">
+      <header class="host-switch__heading">
+        <div>
+          <p class="eyebrow"><span></span> MIGRAÇÃO LOCAL E VERIFICÁVEL</p>
+          <h2 id="host-switch-title">HOST <em>SWITCH</em></h2>
+        </div>
+        <p>Prepare um pacote íntegro no host atual e valide-o antes de restaurar. O processo nunca inicia o servidor nem apaga a origem.</p>
+      </header>
+
+      <div class="host-auth">
+        <label for="host-switch-token">Token local de acesso</label>
+        <input id="host-switch-token" type="password" autocomplete="off" placeholder="Cole o token de .host-switch/access-token" />
+        <button class="compact-button" type="button" data-host-connect>CONSULTAR ESTADO</button>
+      </div>
+
+      <div class="host-grid">
+        <article class="host-card">
+          <header><span>01</span><div><small>HOST DE ORIGEM</small><h3>Preparar exportação</h3></div></header>
+          <dl class="host-facts">
+            <div><dt>Servidor</dt><dd data-server-state>Não consultado</dd></div>
+            <div><dt>Operação</dt><dd data-operation-state>Aguardando</dd></div>
+          </dl>
+          <div class="progress" aria-label="Progresso da operação"><span data-progress></span></div>
+          <p class="host-message" data-host-message>Informe o token e consulte o estado real da instância.</p>
+          <div class="host-actions">
+            <button class="button button--primary" type="button" data-export disabled>PREPARAR EXPORTAÇÃO</button>
+            <button class="button" type="button" data-download hidden>BAIXAR PACOTE</button>
+          </div>
+        </article>
+
+        <article class="host-card">
+          <header><span>02</span><div><small>HOST DE DESTINO</small><h3>Validar e restaurar</h3></div></header>
+          <label class="file-picker" for="migration-package">
+            <input id="migration-package" type="file" accept=".zip,application/zip" data-import-file />
+            <span>Selecionar pacote .zip</span><small data-file-name>Nenhum arquivo selecionado</small>
+          </label>
+          <button class="compact-button" type="button" data-validate disabled>VALIDAR PACOTE</button>
+          <div class="validation-report" data-validation-report hidden></div>
+          <div class="restore-confirmation" data-restore-confirmation hidden>
+            <label for="restore-confirmation">Para substituir o destino, digite <b>RESTAURAR</b></label>
+            <input id="restore-confirmation" type="text" autocomplete="off" data-confirmation />
+            <button class="button button--danger" type="button" data-restore>CONFIRMAR RESTAURAÇÃO</button>
+          </div>
+        </article>
+      </div>
+
+      <aside class="host-warning">
+        <b>Limite desta versão</b>
+        <p>O download ou a importação não concluem sozinhos o revezamento entre hosts. Transfira o ZIP manualmente, confirme que ambos os servidores estão parados e só então ative o novo host. Não há trava distribuída entre computadores.</p>
+      </aside>
+    </section>
+  </main>
+
+  <dialog class="tutorial" id="tutorial" aria-labelledby="tutorial-title">
+    <header class="tutorial__header">
+      <div>
+        <p>GUIA DE INSTALAÇÃO</p>
+        <h2 id="tutorial-title">Como instalar o Modpack</h2>
+      </div>
+      <button type="button" data-tutorial-close aria-label="Voltar para a tela inicial">×</button>
+    </header>
+    <div class="tutorial__content">
+      <section>
+        <h3>Configurar seu usuário</h3>
+        <ol>
+          <li>Defina seu usuário clicando no ícone na parte superior direita do PolyMC.</li>
+          <li>Clique em <strong>“Gerenciar contas...”</strong>.</li>
+          <li>Na lista à direita, selecione <strong>“Adicionar offline”</strong> e escolha seu nome de usuário.</li>
+          <li>Volte para a tela inicial.</li>
+          <li>Clique em <strong>“Adicionar instância”</strong>, no canto superior esquerdo.</li>
+          <li>No menu à esquerda, selecione <strong>CurseForge</strong>.</li>
+          <li>Pesquise por <strong>TechRevolution</strong> e clique em <strong>“OK”</strong>.</li>
+        </ol>
+      </section>
+      <section>
+        <h3>Configuração de memória RAM</h3>
+        <ol>
+          <li>Na tela inicial, clique em <strong>“Configurações”</strong>.</li>
+          <li>No menu à esquerda, selecione <strong>Java</strong>.</li>
+          <li>Defina a alocação mínima para pelo menos <strong>2000 MiB</strong>.</li>
+          <li>Defina a alocação máxima para pelo menos <strong>8000 MiB</strong>.</li>
+          <li>Feche a janela de configuração.</li>
+          <li>Pronto!</li>
+        </ol>
+      </section>
+    </div>
+    <footer class="tutorial__footer">
+      <button class="button button--primary" type="button" data-tutorial-close>VOLTAR À TELA INICIAL</button>
+    </footer>
+  </dialog>
+
+  <div class="toast" id="toast" role="status" aria-live="polite">
+    <span aria-hidden="true">✓</span>
+    <p><b>IP do servidor copiado</b><small id="toast-message"></small></p>
+  </div>
+
+  <script type="module" src="/src/js/script.js"></script>
+</body>
+
+</html>

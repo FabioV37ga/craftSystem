@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://craftsystem.local/schemas/host-switch-manifest-v1.json",
+  "title": "CraftSystem Host Switch manifest v1",
+  "type": "object",
+  "required": ["format", "formatVersion", "server", "export", "policy", "report"],
+  "additionalProperties": false,
+  "properties": {
+    "format": { "const": "craftsystem-host-switch" },
+    "formatVersion": { "const": 1 },
+    "server": {
+      "type": "object",
+      "required": ["minecraftVersion", "software", "softwareVersion", "javaVersion", "components"],
+      "properties": {
+        "minecraftVersion": { "type": ["string", "null"] },
+        "software": { "type": ["string", "null"] },
+        "softwareVersion": { "type": ["string", "null"] },
+        "javaVersion": { "type": ["string", "null"] },
+        "components": { "type": "object", "properties": { "mods": { "type": "array", "items": { "type": "string" } }, "plugins": { "type": "array", "items": { "type": "string" } } }, "required": ["mods", "plugins"] }
+      }
+    },
+    "export": {
+      "type": "object",
+      "required": ["createdAt", "sourceId", "files"],
+      "properties": {
+        "createdAt": { "type": "string", "format": "date-time" },
+        "sourceId": { "type": "string" },
+        "files": { "type": "array", "items": { "$ref": "#/$defs/file" } }
+      }
+    },
+    "policy": { "type": "object" },
+    "report": { "type": "object" }
+  },
+  "$defs": {
+    "file": {
+      "type": "object",
+      "required": ["path", "size", "sha256"],
+      "additionalProperties": false,
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "size": { "type": "integer", "minimum": 0 },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "mode": { "type": "integer", "minimum": 0, "maximum": 511 }
+      }
+    }
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "name": "craftsystem",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "echo": "echo 'sudo \"$(command -v node)\" ./node_modules/vite/bin/vite.js'",
+    "start": "node --env-file=.host-switch/mcs.env server/index.js",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "node --test",
+    "host-switch": "node bin/host-switch.js"
+  },
+  "devDependencies": {
+    "supertest": "^7.3.1",
+    "vite": "^7.1.7"
+  },
+  "dependencies": {
+    "archiver": "^7.0.1",
+    "express": "^5.3.0",
+    "helmet": "^8.3.0",
+    "multer": "^2.4.0",
+    "yauzl": "^3.4.0"
+  }
+}

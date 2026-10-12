@@ -1,0 +1,29 @@
+# CraftSystem
+
+Landing page e serviço local de gerenciamento do servidor Minecraft.
+
+## Desenvolvimento
+
+```bash
+npm install
+npm run dev
+```
+
+## Serviço integrado
+
+```bash
+npm run build
+npm start
+```
+
+O serviço publica a landing compilada e a API do Host Switch. Antes de exportar ou restaurar, configure a verificação real da instância conforme o [manual do Host Switch](docs/host-switch.md).
+
+## Verificações
+
+```bash
+npm test
+npm run build
+npm audit
+```
+
+O esquema do pacote está documentado em [`docs/host-switch-manifest.schema.json`](docs/host-switch-manifest.schema.json).
