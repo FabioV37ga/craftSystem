@@ -16,7 +16,7 @@ npm run build
 npm start
 ```
 
-O serviço publica a landing compilada e a API do Host Switch. Antes de exportar ou restaurar, configure a verificação real da instância conforme o [manual do Host Switch](docs/host-switch.md).
+O serviço publica a landing compilada e a API do Host Switch. A exportação não depende do estado da instância; antes de restaurar, configure a verificação real conforme o [manual do Host Switch](docs/host-switch.md).
 
 ## Verificações
 

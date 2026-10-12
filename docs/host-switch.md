@@ -15,7 +15,7 @@ O Host Switch cria um pacote versionado e verificável da instalação Minecraft
 
 ## Estado real da instância
 
-Nenhuma operação destrutiva confia na ausência de resposta da interface. Sem um verificador configurado, o estado é `unknown` e exportar/restaurar é bloqueado.
+A exportação não consulta nem exige o estado da instância. Ela pode ser iniciada com o servidor ligado ou com estado `unknown`, embora parar o servidor continue recomendado para obter uma cópia consistente. A restauração é destrutiva e permanece bloqueada sem confirmação de que a instância está parada.
 
 Para MCSManager, configure as quatro variáveis abaixo. A integração consulta `GET /api/instance`, envia a chave no cabeçalho `x-request-api-key`, considera apenas `data.status === 0` como parado e trata estados de execução/transição como ligados:
 
@@ -37,10 +37,10 @@ O programa deve terminar com código `0` somente quando confirmar que a instânc
 
 ## Executar no Linux Mint
 
-1. Pare a instância normalmente pelo MCSManager e aguarde o estado parado.
-2. Na raiz do CraftSystem, execute `npm install`, `npm run build` e configure o verificador acima.
+1. Para reduzir alterações durante a cópia, prefira parar a instância normalmente pelo MCSManager; isso não é obrigatório para exportar.
+2. Na raiz do CraftSystem, execute `npm install` e `npm run build`. O verificador acima só é obrigatório para restaurar.
 3. Inicie com `npm start`. O padrão é `127.0.0.1:4173`; use `HOST` e `PORT` se necessário.
-4. Leia o token em `.host-switch/access-token`, abra a landing, vá a **Host Switch**, cole o token e consulte o estado.
+4. Leia o token em `.host-switch/access-token`, abra a landing, vá a **Host Switch** e cole o token. A consulta de estado é informativa durante a exportação.
 5. Clique em **Preparar exportação**. Só baixe o pacote após aparecer **Pronto para download**.
 6. Copie o ZIP manualmente para o Windows. Não apague nem inicie novamente a origem até a validação do destino terminar.
 
@@ -81,7 +81,7 @@ Para restauração manual, confirme que a instância está parada, renomeie o de
 - Minecraft/software/versão conhecidos e diferentes são bloqueadores.
 - Java, mods, plugins ou valores ausentes geram avisos e estado de compatibilidade `unknown`; isso não é declarado compatível.
 - Consulte Java com `java -version`. Minecraft é lido de `manifest.json` quando presente; Forge/Arclight são inferidos somente de nomes de JAR reconhecíveis.
-- “Estado não confirmado”: configure credenciais/IDs do MCSManager ou o verificador local.
+- “Estado não confirmado” ao restaurar: configure credenciais/IDs do MCSManager ou o verificador local.
 - “Arquivo mudou durante a exportação”: a instalação ainda está sendo alterada; confirme parada e tente de novo.
 - “Hash/tamanho inválido”: descarte o ZIP e transfira novamente.
 - “Caminho inseguro/colisão”: o pacote é rejeitado antes de qualquer escrita.

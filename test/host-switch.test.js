@@ -32,11 +32,12 @@ test('exporta estrutura válida, arquivo oculto e hashes verificáveis', async (
   assert(!report.manifest.export.files.some((file) => file.path.startsWith('logs/')));
 });
 
-test('bloqueia exportação com servidor ativo ou estado desconhecido', async (t) => {
+test('exportação não depende do estado do servidor', async (t) => {
   const root = await fixture(t);
   await fsp.writeFile(path.join(root.server, 'server.properties'), 'motd=test');
-  await assert.rejects(exportServer({ ...root, stateProvider: running }, operation()), { code: 'SERVER_RUNNING' });
-  await assert.rejects(exportServer({ ...root, stateProvider: async () => ({ state: 'unknown', message: 'incerto' }) }, operation()), { code: 'SERVER_STATE_UNKNOWN' });
+  const op = operation();
+  await exportServer({ ...root, stateProvider: async () => { throw new Error('não deve consultar o estado'); } }, op);
+  assert.equal(op.state, 'ready');
 });
 
 test('rejeita manifesto inválido, hash incorreto e arquivo ausente', async (t) => {

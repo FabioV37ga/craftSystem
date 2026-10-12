@@ -8,10 +8,8 @@ import archiver from 'archiver';
 import { classify, policyDescription } from './policy.js';
 import { inspectInstallation } from './metadata.js';
 import { validatePackage } from './importer.js';
-import { requireStopped } from './state.js';
 
 export async function exportServer(config, operation) {
-  await requireStopped(config);
   operation.update('preparing', 2, 'Inventariando a instalação.');
   const stat = await fsp.stat(config.serverRoot).catch(() => null);
   if (!stat?.isDirectory()) throw Object.assign(new Error('Diretório do servidor não encontrado.'), { status: 404 });

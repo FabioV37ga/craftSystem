@@ -7,7 +7,7 @@ export async function getServerState(config) {
     return {
       state: 'unknown',
       source: 'not-configured',
-      message: 'A verificação do MCSManager não foi configurada. Configure as credenciais/IDs do MCSManager ou HOST_SWITCH_STATUS_COMMAND antes de exportar ou restaurar.',
+      message: 'A verificação do MCSManager não foi configurada. Configure as credenciais/IDs do MCSManager ou HOST_SWITCH_STATUS_COMMAND antes de restaurar.',
     };
   }
 
