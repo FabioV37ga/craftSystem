@@ -4,6 +4,7 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { inspectInstallation } from './metadata.js';
 import { validateArchivePath } from './paths.js';
+import { makePubliclyReadable } from './permissions.js';
 import { extractEntry, readEntryBuffer, scanZip, withZipEntries } from './zip.js';
 import { requireStopped } from './state.js';
 
@@ -66,6 +67,9 @@ export async function restorePackage(config, packagePath, targetRoot, operation)
     operation?.update('restoring', 20, 'Extraindo para área temporária segura.');
     await extractPayload(packagePath, staging, report.manifest);
     await verifyExtracted(staging, report.manifest);
+    if (process.platform !== 'win32') {
+      await makePubliclyReadable(staging, new Map(report.manifest.export.files.map((file) => [file.path, file.mode])));
+    }
     await requireStopped(config);
     const existing = await fsp.stat(targetRoot).catch(() => null);
     if (existing) {

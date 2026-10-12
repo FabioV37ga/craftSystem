@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import express from 'express';
@@ -7,15 +8,22 @@ import { getConfig } from './config.js';
 import { exportServer } from './exporter.js';
 import { validatePackage, restorePackage } from './importer.js';
 import { OperationStore } from './operations.js';
+import { repairServerAccessIfNeeded } from './permissions.js';
 import { ensureToken, rejectCrossOrigin, requireToken } from './security.js';
 import { getServerState } from './state.js';
+
+const UPLOAD_CHUNK_BYTES = 32 * 1024 ** 2;
 
 export async function createApp(overrides = {}) {
   const config = getConfig(overrides);
   if (overrides.stateProvider) config.stateProvider = overrides.stateProvider;
+  if (process.platform !== 'win32' && await repairServerAccessIfNeeded(config.serverRoot)) {
+    console.info(JSON.stringify({ time: new Date().toISOString(), event: 'server.permissions.repaired', serverRoot: config.serverRoot }));
+  }
   await fs.mkdir(path.join(config.dataRoot, 'uploads'), { recursive: true, mode: 0o700 });
   await ensureToken(config);
   const operations = new OperationStore();
+  const uploads = new Map();
   const app = express();
   app.disable('x-powered-by');
   app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false }));
@@ -38,6 +46,7 @@ export async function createApp(overrides = {}) {
 
   app.use('/api/host-switch', rejectCrossOrigin, requireToken(config));
   const upload = multer({ dest: path.join(config.dataRoot, 'uploads'), limits: { fileSize: config.maxUploadBytes, files: 1, fields: 0 } });
+  const uploadChunk = express.raw({ type: 'application/octet-stream', limit: UPLOAD_CHUNK_BYTES });
 
   app.get('/api/host-switch/status', async (_req, res, next) => {
     try { res.json({ server: await getServerState(config), busy: operations.busy, operations: operations.list(), latestExport: await findLatestExport(config) }); } catch (error) { next(error); }
@@ -79,22 +88,61 @@ export async function createApp(overrides = {}) {
     }
   });
 
+  app.post('/api/host-switch/imports/uploads', async (req, res, next) => {
+    try {
+      if (operations.busy) return res.status(409).json({ error: 'Já existe uma operação intensiva em andamento.' });
+      if (uploads.size) return res.status(409).json({ error: 'Já existe um upload em andamento.' });
+      const size = Number(req.body?.size);
+      const originalName = path.basename(String(req.body?.name || '')).slice(0, 180);
+      if (!originalName || !Number.isSafeInteger(size) || size <= 0) return res.status(400).json({ error: 'Nome ou tamanho do pacote inválido.' });
+      if (size > config.maxUploadBytes) return res.status(413).json({ error: 'O upload excede o limite configurado.' });
+      const id = crypto.randomUUID();
+      const packagePath = path.join(config.dataRoot, 'uploads', `${id}.partial`);
+      await fs.writeFile(packagePath, '', { flag: 'wx', mode: 0o600 });
+      uploads.set(id, { id, packagePath, originalName, size, received: 0, nextChunk: 0, writing: false });
+      res.status(201).json({ id, chunkBytes: UPLOAD_CHUNK_BYTES });
+    } catch (error) { next(error); }
+  });
+
+  app.put('/api/host-switch/imports/uploads/:id/chunks/:index', uploadChunk, async (req, res, next) => {
+    const session = uploads.get(req.params.id);
+    const index = Number(req.params.index);
+    if (!session) return res.status(404).json({ error: 'Upload não encontrado ou expirado.' });
+    if (!Number.isSafeInteger(index) || index !== session.nextChunk) return res.status(409).json({ error: `Bloco fora de ordem; esperado ${session.nextChunk}.` });
+    if (session.writing) return res.status(409).json({ error: 'O bloco anterior ainda está sendo gravado.' });
+    if (!Buffer.isBuffer(req.body) || req.body.length === 0 || session.received + req.body.length > session.size) return res.status(400).json({ error: 'Bloco de upload inválido.' });
+    session.writing = true;
+    try {
+      await fs.appendFile(session.packagePath, req.body);
+      session.received += req.body.length;
+      session.nextChunk++;
+      res.json({ received: session.received, size: session.size });
+    } catch (error) { next(error); }
+    finally { session.writing = false; }
+  });
+
+  app.post('/api/host-switch/imports/uploads/:id/complete', (req, res, next) => {
+    const session = uploads.get(req.params.id);
+    if (!session) return res.status(404).json({ error: 'Upload não encontrado ou expirado.' });
+    if (session.writing || session.received !== session.size) return res.status(409).json({ error: `Upload incompleto: ${session.received} de ${session.size} bytes.` });
+    const operation = operations.create('validation');
+    try { operations.acquire(operation); } catch (error) { return next(error); }
+    uploads.delete(session.id);
+    beginValidation(operation, session.packagePath, session.originalName, res);
+  });
+
+  app.delete('/api/host-switch/imports/uploads/:id', async (req, res, next) => {
+    const session = uploads.get(req.params.id);
+    if (!session) return res.status(204).end();
+    uploads.delete(session.id);
+    try { await fs.rm(session.packagePath, { force: true }); res.status(204).end(); } catch (error) { next(error); }
+  });
+
   app.post('/api/host-switch/imports', (req, res, next) => operations.busy ? res.status(409).json({ error: 'Já existe uma operação intensiva em andamento.' }) : next(), upload.single('package'), (req, res, next) => {
     if (!req.file) return res.status(400).json({ error: 'Selecione um pacote ZIP.' });
     const operation = operations.create('validation');
     try { operations.acquire(operation); } catch (error) { fs.rm(req.file.path, { force: true }).catch(() => {}); return next(error); }
-    operation.packagePath = req.file.path;
-    operation.originalName = path.basename(req.file.originalname).slice(0, 180);
-    audit('validation.started', operation);
-    res.status(202).json(operations.public(operation));
-    operation.update('validating', 5, 'Validando manifesto, caminhos, tamanhos e hashes.');
-    validatePackage(operation.packagePath, {
-      targetRoot: config.serverRoot,
-      onProgress: ({ verified, total }) => operation.update('validating', 5 + Math.floor((verified / Math.max(total, 1)) * 90), `Validando ${verified} de ${total} arquivos.`),
-    })
-      .then((report) => { operation.result = { report, originalName: operation.originalName }; operation.update('awaiting-confirmation', 100, 'Pacote válido. Revise a compatibilidade e confirme a restauração.'); audit('validation.completed', operation); })
-      .catch((error) => { fail(operation, error); audit('validation.failed', operation); fs.rm(operation.packagePath, { force: true }).catch(() => {}); })
-      .finally(() => operations.release(operation));
+    beginValidation(operation, req.file.path, path.basename(req.file.originalname).slice(0, 180), res);
   });
 
   app.post('/api/host-switch/imports/:id/restore', async (req, res, next) => {
@@ -121,6 +169,21 @@ export async function createApp(overrides = {}) {
     res.status(uploadTooLarge ? 413 : error.status || 500).json({ error: uploadTooLarge ? 'O upload excede o limite configurado.' : safeMessage(error) });
   });
   return { app, config, operations };
+
+  function beginValidation(operation, packagePath, originalName, res) {
+    operation.packagePath = packagePath;
+    operation.originalName = originalName;
+    audit('validation.started', operation);
+    res.status(202).json(operations.public(operation));
+    operation.update('validating', 5, 'Validando manifesto, caminhos, tamanhos e hashes.');
+    validatePackage(operation.packagePath, {
+      targetRoot: config.serverRoot,
+      onProgress: ({ verified, total }) => operation.update('validating', 5 + Math.floor((verified / Math.max(total, 1)) * 90), `Validando ${verified} de ${total} arquivos.`),
+    })
+      .then((report) => { operation.result = { report, originalName: operation.originalName }; operation.update('awaiting-confirmation', 100, 'Pacote válido. Revise a compatibilidade e confirme a restauração.'); audit('validation.completed', operation); })
+      .catch((error) => { fail(operation, error); audit('validation.failed', operation); fs.rm(operation.packagePath, { force: true }).catch(() => {}); })
+      .finally(() => operations.release(operation));
+  }
 }
 
 function fail(operation, error) {

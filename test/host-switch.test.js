@@ -87,6 +87,50 @@ test('bloqueia upload excessivo', async (t) => {
   assert.equal(response.status, 413);
 });
 
+test('upload de pacote gerado localmente produz relatório de validação', async (t) => {
+  const root = await fixture(t);
+  const file = await packageZip(t, root.base, { 'world/level.dat': 'world-state' });
+  const { app, operations } = await createApp({ ...root, token: 'test-token', stateProvider: stopped });
+  const response = await request(app).post('/api/host-switch/imports').set('x-host-switch-token', 'test-token').attach('package', file);
+  assert.equal(response.status, 202);
+  let validation;
+  for (let attempt = 0; attempt < 100; attempt++) {
+    validation = operations.get(response.body.id);
+    if (['awaiting-confirmation', 'failed'].includes(validation.state)) break;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  assert.equal(validation.state, 'awaiting-confirmation');
+  assert.equal(validation.result.report.valid, true);
+  assert.equal(validation.result.report.fileCount, 1);
+});
+
+test('upload em blocos evita requisição única para pacote grande', async (t) => {
+  const root = await fixture(t);
+  const file = await packageZip(t, root.base, { 'world/level.dat': 'world-state' });
+  const contents = await fsp.readFile(file);
+  const { app, operations } = await createApp({ ...root, token: 'test-token', stateProvider: stopped });
+  const initialized = await request(app).post('/api/host-switch/imports/uploads').set('x-host-switch-token', 'test-token').send({ name: 'migration.zip', size: contents.length });
+  assert.equal(initialized.status, 201);
+  assert(initialized.body.chunkBytes > 0);
+  const uploaded = await request(app)
+    .put(`/api/host-switch/imports/uploads/${initialized.body.id}/chunks/0`)
+    .set('x-host-switch-token', 'test-token')
+    .set('content-type', 'application/octet-stream')
+    .send(contents);
+  assert.equal(uploaded.status, 200);
+  assert.equal(uploaded.body.received, contents.length);
+  const completed = await request(app).post(`/api/host-switch/imports/uploads/${initialized.body.id}/complete`).set('x-host-switch-token', 'test-token');
+  assert.equal(completed.status, 202);
+  let validation;
+  for (let attempt = 0; attempt < 100; attempt++) {
+    validation = operations.get(completed.body.id);
+    if (['awaiting-confirmation', 'failed'].includes(validation.state)) break;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  assert.equal(validation.state, 'awaiting-confirmation');
+  assert.equal(validation.result.report.valid, true);
+});
+
 test('API exige token, confirmação explícita e impede operações concorrentes', async (t) => {
   const root = await fixture(t);
   const { app, operations } = await createApp({ ...root, token: 'test-token', stateProvider: stopped });
@@ -137,13 +181,19 @@ test('detecta incompatibilidade conhecida', async (t) => {
 test('restauração preserva backup, mantém servidor parado e faz rollback em falha', async (t) => {
   const root = await fixture(t);
   await fsp.writeFile(path.join(root.server, 'old.txt'), 'old');
-  const file = await packageZip(t, root.base, { 'world/new.dat': 'new' });
+  const file = await packageZip(t, root.base, { 'world/new.dat': 'new', 'start_server.sh': '#!/bin/sh\n' });
   const config = { ...root, stateProvider: stopped, beforeCommit: async () => { throw new Error('falha simulada'); } };
   await assert.rejects(restorePackage(config, file, root.server, operation()), /falha simulada/);
   assert.equal(await fsp.readFile(path.join(root.server, 'old.txt'), 'utf8'), 'old');
   delete config.beforeCommit;
   const result = await restorePackage(config, file, root.server, operation());
   assert.equal(await fsp.readFile(path.join(root.server, 'world', 'new.dat'), 'utf8'), 'new');
+  if (process.platform !== 'win32') {
+    assert.equal((await fsp.stat(root.server)).mode & 0o777, 0o755);
+    assert.equal((await fsp.stat(path.join(root.server, 'world'))).mode & 0o777, 0o755);
+    assert.equal((await fsp.stat(path.join(root.server, 'world', 'new.dat'))).mode & 0o777, 0o644);
+    assert.equal((await fsp.stat(path.join(root.server, 'start_server.sh'))).mode & 0o777, 0o755);
+  }
   assert.equal(result.serverStarted, false);
   assert.equal(await fsp.readFile(path.join(result.backupPath, 'old.txt'), 'utf8'), 'old');
 });
@@ -152,6 +202,16 @@ test('restauração bloqueia destino ativo', async (t) => {
   const root = await fixture(t);
   const file = await packageZip(t, root.base, { 'world/a.dat': 'a' });
   await assert.rejects(restorePackage({ ...root, stateProvider: running }, file, root.server, operation()), { code: 'SERVER_RUNNING' });
+});
+
+test('inicialização corrige árvore restaurada sem acesso público', { skip: process.platform === 'win32' }, async (t) => {
+  const root = await fixture(t);
+  const file = path.join(root.server, 'server.properties');
+  await fsp.writeFile(file, 'motd=test', { mode: 0o600 });
+  await fsp.chmod(root.server, 0o700);
+  await createApp({ ...root, token: 'test-token', stateProvider: stopped });
+  assert.equal((await fsp.stat(root.server)).mode & 0o777, 0o755);
+  assert.equal((await fsp.stat(file)).mode & 0o777, 0o644);
 });
 
 test('aborta exportação quando a origem muda durante a coleta', async (t) => {

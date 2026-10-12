@@ -64,6 +64,7 @@ const hostMessage = document.querySelector('[data-host-message]');
 const importFile = document.querySelector('[data-import-file]');
 const fileName = document.querySelector('[data-file-name]');
 const validateButton = document.querySelector('[data-validate]');
+const validationStatus = document.querySelector('[data-validation-status]');
 const validationReport = document.querySelector('[data-validation-report]');
 const restoreBox = document.querySelector('[data-restore-confirmation]');
 const confirmation = document.querySelector('[data-confirmation]');
@@ -77,7 +78,7 @@ async function api(url, options = {}) {
   const token = hostToken.value.trim();
   const headers = new Headers(options.headers);
   headers.set('x-host-switch-token', token);
-  if (options.body && !(options.body instanceof FormData)) headers.set('content-type', 'application/json');
+  if (options.body && !(options.body instanceof FormData) && !(options.body instanceof Blob) && !headers.has('content-type')) headers.set('content-type', 'application/json');
   const response = await fetch(url, { ...options, headers });
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
@@ -118,17 +119,26 @@ exportButton.addEventListener('click', async () => {
 importFile.addEventListener('change', () => {
   fileName.textContent = importFile.files[0]?.name || 'Nenhum arquivo selecionado';
   validateButton.disabled = !importFile.files.length || !hostToken.value.trim();
+  validationStatus.textContent = importFile.files.length ? 'Pacote pronto para envio.' : 'Selecione um pacote para validar.';
   restoreBox.hidden = true; validationReport.hidden = true;
 });
 
 validateButton.addEventListener('click', async () => {
   try {
     setBusy(true);
-    const body = new FormData(); body.append('package', importFile.files[0]);
-    const operation = await (await api('/api/host-switch/imports', { method: 'POST', body })).json();
+    restoreBox.hidden = true;
+    validationReport.hidden = true;
+    operationState.textContent = 'Enviando pacote';
+    progress.style.width = '0%';
+    const operation = await uploadPackage(importFile.files[0]);
     const complete = await watchOperation(operation.id);
     if (complete.state === 'awaiting-confirmation') showValidation(complete);
-  } catch (error) { hostMessage.textContent = error.message; setBusy(false); }
+  } catch (error) {
+    hostMessage.textContent = error.message;
+    validationStatus.textContent = `Falha: ${error.message}`;
+    operationState.textContent = 'Falhou';
+    setBusy(false);
+  }
 });
 
 restoreButton.addEventListener('click', async () => {
@@ -147,6 +157,7 @@ async function watchOperation(id) {
     operationState.textContent = labels[operation.state] || operation.state;
     progress.style.width = `${operation.progress}%`;
     hostMessage.textContent = operation.error?.message || operation.message;
+    if (operation.kind === 'validation') validationStatus.textContent = operation.error?.message || operation.message;
     if (['ready', 'awaiting-confirmation', 'completed', 'failed'].includes(operation.state)) {
       setBusy(false);
       if (operation.state === 'ready') {
@@ -156,6 +167,37 @@ async function watchOperation(id) {
       return operation;
     }
     await new Promise((resolve) => window.setTimeout(resolve, 800));
+  }
+}
+
+async function uploadPackage(file) {
+  if (!file) throw new Error('Selecione um pacote ZIP.');
+  let uploadId;
+  try {
+    const session = await (await api('/api/host-switch/imports/uploads', {
+      method: 'POST', body: JSON.stringify({ name: file.name, size: file.size }),
+    })).json();
+    uploadId = session.id;
+    let sent = 0;
+    let index = 0;
+    while (sent < file.size) {
+      const chunk = file.slice(sent, Math.min(sent + session.chunkBytes, file.size));
+      const response = await (await api(`/api/host-switch/imports/uploads/${uploadId}/chunks/${index}`, {
+        method: 'PUT', headers: { 'content-type': 'application/octet-stream' }, body: chunk,
+      })).json();
+      sent = response.received;
+      index++;
+      const percent = Math.min(Math.round((sent / file.size) * 100), 100);
+      progress.style.width = `${percent}%`;
+      validationStatus.textContent = `Enviando pacote: ${percent}% (${formatBytes(sent)} de ${formatBytes(file.size)}).`;
+    }
+    validationStatus.textContent = 'Upload concluído. Iniciando validação...';
+    const operation = await (await api(`/api/host-switch/imports/uploads/${uploadId}/complete`, { method: 'POST' })).json();
+    uploadId = undefined;
+    return operation;
+  } catch (error) {
+    if (uploadId) await api(`/api/host-switch/imports/uploads/${uploadId}`, { method: 'DELETE' }).catch(() => {});
+    throw error;
   }
 }
 
@@ -188,6 +230,7 @@ function showValidation(operation) {
   validationId = operation.id;
   const { report } = operation.result;
   const compatibility = report.compatibility;
+  validationStatus.textContent = 'Validação concluída. Confira o resultado abaixo.';
   validationReport.hidden = false;
   validationReport.replaceChildren();
   const summary = document.createElement('p');

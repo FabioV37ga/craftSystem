@@ -7,10 +7,13 @@ O Host Switch cria um pacote versionado e verificável da instalação Minecraft
 - A landing Vite usa a API Node em `/api/host-switch`.
 - Toda a API exige `X-Host-Switch-Token`. Na primeira inicialização, um token aleatório é salvo em `.host-switch/access-token` com permissão restrita; prefira definir `HOST_SWITCH_TOKEN` em produção.
 - Uma única exportação/restauração pode alterar dados por vez. Uploads têm limite padrão de 20 GiB (`HOST_SWITCH_MAX_UPLOAD_BYTES`).
+- Requisições podem durar até 6 horas por padrão para permitir ZIPs grandes; ajuste em milissegundos com `HOST_SWITCH_REQUEST_TIMEOUT_MS` se necessário.
+- O navegador envia pacotes em blocos de 32 MiB, evitando que proxies encerrem uma única requisição longa durante uploads grandes.
 - O diretório padrão é resolvido independentemente do diretório de execução como `../server`; altere-o com `HOST_SWITCH_SERVER_ROOT`.
 - Exportações copiam para um temporário, verificam se cada fonte não mudou, calculam SHA-256, criam o ZIP em `.partial`, reabrem e verificam todo o pacote e só então publicam o nome definitivo.
 - Importações rejeitam caminhos absolutos, `..`, barras invertidas, links simbólicos, nomes reservados/ilegais do Windows, duplicatas sem diferença de caixa, arquivos não declarados, tamanhos e hashes divergentes.
 - A restauração extrai e revalida em um diretório temporário no mesmo volume. O destino existente é renomeado para backup antes da troca. Uma falha na troca restaura o backup.
+- No Linux, a árvore restaurada recebe acesso público de leitura/travessia: diretórios `755`, arquivos comuns `644` e executáveis/scripts `.sh` `755`. Escrita pública não é concedida.
 - SHA-256 dentro do mesmo ZIP detecta corrupção, mas não autentica o autor. Para resistência a adulteração intencional, o formato precisará futuramente de assinatura digital com chave mantida fora do pacote.
 
 ## Estado real da instância
