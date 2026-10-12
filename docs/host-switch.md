@@ -2,6 +2,8 @@
 
 O Host Switch cria um pacote versionado e verificável da instalação Minecraft e o restaura localmente no outro computador. Ele não transfere arquivos pela rede, não inicia o servidor e não garante exclusividade distribuída entre os hosts.
 
+Computadores remotos não precisam clonar ou executar o CraftSystem. O usuário pode parar o servidor, criar um ZIP comum da pasta completa e enviá-lo pela opção **Padronizar ZIP**. A instância central inspeciona o arquivo, remove conteúdo excluído pela política, calcula hashes, cria o manifesto e devolve um pacote v2 pronto para extração na raiz do próximo servidor.
+
 ## Arquitetura e segurança
 
 - A landing Vite usa a API Node em `/api/host-switch`.
@@ -9,6 +11,7 @@ O Host Switch cria um pacote versionado e verificável da instalação Minecraft
 - Uma única exportação/restauração pode alterar dados por vez. Uploads têm limite padrão de 20 GiB (`HOST_SWITCH_MAX_UPLOAD_BYTES`).
 - Requisições podem durar até 6 horas por padrão para permitir ZIPs grandes; ajuste em milissegundos com `HOST_SWITCH_REQUEST_TIMEOUT_MS` se necessário.
 - O navegador envia pacotes em blocos de 32 MiB, evitando que proxies encerrem uma única requisição longa durante uploads grandes.
+- ZIPs comuns são normalizados no servidor central. Uma pasta externa criada pelo compactador é removida automaticamente quando contém marcadores reconhecíveis de instalação Minecraft.
 - O diretório padrão é resolvido independentemente do diretório de execução como `../server`; altere-o com `HOST_SWITCH_SERVER_ROOT`.
 - Exportações copiam para um temporário, verificam se cada fonte não mudou, calculam SHA-256, criam o ZIP em `.partial`, reabrem e verificam todo o pacote e só então publicam o nome definitivo.
 - Importações rejeitam caminhos absolutos, `..`, barras invertidas, links simbólicos, nomes reservados/ilegais do Windows, duplicatas sem diferença de caixa, arquivos não declarados, tamanhos e hashes divergentes.
@@ -47,7 +50,21 @@ O programa deve terminar com código `0` somente quando confirmar que a instânc
 5. Clique em **Preparar exportação**. Só baixe o pacote após aparecer **Pronto para download**.
 6. Copie o ZIP manualmente para o Windows. Não apague nem inicie novamente a origem até a validação do destino terminar.
 
+## Padronizar ZIP de outro computador
+
+1. Pare o servidor no computador de origem.
+2. Compacte a pasta completa do servidor em um ZIP comum. A pasta pode aparecer como uma única pasta externa dentro do arquivo.
+3. Abra o CraftSystem central, selecione **ZIP comum**, escolha o arquivo e clique em **Padronizar ZIP**.
+4. Aguarde upload, inspeção, extração seletiva, geração do manifesto e validação.
+5. Baixe o pacote produzido. Os arquivos ficam na raiz do ZIP e podem ser extraídos diretamente pelo gerenciador de arquivos do MCSManager no próximo host.
+
+O sistema não extrai logs, caches, backups, temporários ou nomes que indiquem credenciais. Caminhos absolutos, travessia por `..`, links simbólicos, colisões de nomes e arquivos excessivamente grandes são rejeitados antes da publicação.
+
 ## Importar no Windows
+
+Para o fluxo sem clone, pare a instância, faça backup do destino e extraia o pacote v2 diretamente na raiz configurada no MCSManager. O arquivo `.craftsystem/manifest.json` pode permanecer na instalação e será ignorado em futuras normalizações.
+
+O fluxo abaixo permanece disponível como opção avançada quando o CraftSystem também estiver instalado no destino e forem desejados validação, backup e troca atômica:
 
 Instale uma versão suportada do Node.js, copie este projeto (ou ao menos `bin`, `server`, `package.json` e `package-lock.json`) para o PC e execute `npm ci --omit=dev` no próprio Windows. No PowerShell, primeiro valide sem escrever no servidor:
 
@@ -94,9 +111,9 @@ Para restauração manual, confirme que a instância está parada, renomeie o de
 
 Use uma cópia pequena da instalação em um diretório temporário, configure `HOST_SWITCH_SERVER_ROOT` para ela e use outro diretório vazio como destino no Windows. Valide mundo, inventário, dimensões, mods/plugins e permissões antes de repetir com o mundo real. Nunca use os testes automatizados contra `../server`: eles criam fixtures próprias no diretório temporário do sistema.
 
-## Formato v1
+## Formatos v1 e v2
 
-O ZIP contém `manifest.json` e `payload/<caminho relativo>`. O esquema está em `docs/host-switch-manifest.schema.json`. Hashes garantem integridade acidental; não garantem autenticidade. Pacotes com versões futuras são rejeitados até haver suporte explícito.
+Pacotes v1 antigos contêm `manifest.json` e `payload/<caminho relativo>`. Pacotes v2 novos mantêm os arquivos do servidor diretamente na raiz e o manifesto em `.craftsystem/manifest.json`, permitindo extração direta pelo MCSManager. O importador aceita ambas as versões. O esquema está em `docs/host-switch-manifest.schema.json`. Hashes garantem integridade acidental; não garantem autenticidade.
 
 ## Limitações atuais
 

@@ -18,18 +18,19 @@ export async function validatePackage(packagePath, options = {}) {
   if (scanned.length > MAX_FILES) throw invalid('O pacote contém arquivos demais.');
   const expanded = scanned.reduce((sum, item) => sum + item.entry.uncompressedSize, 0);
   if (expanded > (options.maxExpandedBytes || MAX_EXPANDED)) throw invalid('O conteúdo expandido excede o limite permitido.');
-  const manifestItem = scanned.find((item) => item.entry.fileName === 'manifest.json');
-  if (!manifestItem || manifestItem.directory) throw invalid('Manifesto ausente.');
+  const manifests = scanned.filter((item) => ['manifest.json', '.craftsystem/manifest.json'].includes(item.entry.fileName));
+  if (manifests.length !== 1 || manifests[0].directory) throw invalid(manifests.length > 1 ? 'O pacote contém manifestos conflitantes.' : 'Manifesto ausente.');
+  const manifestItem = manifests[0];
   let manifest;
   await withZipEntries(packagePath, async (zip, entry) => {
-    if (entry.fileName === 'manifest.json') {
+    if (entry.fileName === manifestItem.entry.fileName) {
       try { manifest = JSON.parse((await readEntryBuffer(zip, entry, MAX_MANIFEST)).toString('utf8')); }
       catch { throw invalid('Manifesto JSON inválido.'); }
     }
   });
   validateManifest(manifest);
-  const expected = new Map(manifest.export.files.map((file) => [`payload/${file.path}`, file]));
-  const actual = scanned.filter((item) => !item.directory && item.entry.fileName !== 'manifest.json');
+  const expected = new Map(manifest.export.files.map((file) => [archivePath(manifest, file.path), file]));
+  const actual = scanned.filter((item) => !item.directory && item.entry.fileName !== manifestItem.entry.fileName);
   for (const item of actual) if (!expected.has(item.entry.fileName)) throw invalid(`Arquivo não declarado no manifesto: ${item.entry.fileName}`);
   if (actual.length !== expected.size) throw invalid('Há arquivos ausentes no pacote.');
   let verified = 0;
@@ -92,11 +93,11 @@ export async function restorePackage(config, packagePath, targetRoot, operation)
 }
 
 async function extractPayload(packagePath, staging, manifest) {
-  const allowed = new Set(manifest.export.files.map((file) => `payload/${file.path}`));
+  const allowed = new Map(manifest.export.files.map((file) => [archivePath(manifest, file.path), file.path]));
   await withZipEntries(packagePath, async (zip, entry) => {
-    if (entry.fileName.endsWith('/') || entry.fileName === 'manifest.json') return;
-    if (!allowed.has(entry.fileName)) throw invalid(`Entrada inesperada: ${entry.fileName}`);
-    const relative = entry.fileName.slice('payload/'.length);
+    if (entry.fileName.endsWith('/') || ['manifest.json', '.craftsystem/manifest.json'].includes(entry.fileName)) return;
+    const relative = allowed.get(entry.fileName);
+    if (!relative) throw invalid(`Entrada inesperada: ${entry.fileName}`);
     validateArchivePath(relative);
     const destination = path.resolve(staging, ...relative.split('/'));
     if (!destination.startsWith(`${path.resolve(staging)}${path.sep}`)) throw invalid('Tentativa de escrita fora do destino.');
@@ -117,7 +118,7 @@ async function verifyExtracted(staging, manifest) {
 }
 
 function validateManifest(value) {
-  if (!value || value.format !== 'craftsystem-host-switch' || value.formatVersion !== 1) throw invalid('Formato ou versão do manifesto não suportado.');
+  if (!value || value.format !== 'craftsystem-host-switch' || ![1, 2].includes(value.formatVersion)) throw invalid('Formato ou versão do manifesto não suportado.');
   if (!value.server || !value.export || !Array.isArray(value.export.files) || typeof value.export.createdAt !== 'string') throw invalid('Estrutura do manifesto inválida.');
   const seen = new Set();
   for (const file of value.export.files) {
@@ -128,6 +129,10 @@ function validateManifest(value) {
     if (seen.has(folded)) throw invalid(`Caminho duplicado no manifesto: ${file.path}`);
     seen.add(folded);
   }
+}
+
+function archivePath(manifest, relative) {
+  return manifest.formatVersion === 2 ? relative : `payload/${relative}`;
 }
 
 async function compareCompatibility(source, target) {

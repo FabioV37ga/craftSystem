@@ -18,7 +18,10 @@ export async function exportServer(config, operation) {
   await fsp.mkdir(payload);
   const paths = await walk(config.serverRoot);
   const included = paths.filter((item) => item.type === 'file' && classify(item.relative).include);
-  const excluded = paths.filter((item) => item.type === 'file' && !classify(item.relative).include).map((item) => ({ path: item.relative, reason: classify(item.relative).reason }));
+  const excluded = [
+    ...(config.sourceReport?.excluded || []),
+    ...paths.filter((item) => item.type === 'file' && !classify(item.relative).include).map((item) => ({ path: item.relative, reason: classify(item.relative).reason })),
+  ];
   const warnings = excluded.filter((item) => /segredo/.test(item.reason)).map((item) => `${item.path}: ${item.reason}`);
   const unexpected = included.filter((item) => classify(item.relative).unexpected).map((item) => item.relative);
   const files = [];
@@ -26,18 +29,20 @@ export async function exportServer(config, operation) {
   let temporary;
   try {
     for (const item of included) {
-      const record = await stableCopy(config.serverRoot, payload, item.relative, config);
+      const record = config.immutableSource
+        ? await hashStableFile(config.serverRoot, item.relative)
+        : await stableCopy(config.serverRoot, payload, item.relative, config);
       files.push(record);
       copied++;
       operation.update('preparing', 5 + Math.floor((copied / Math.max(included.length, 1)) * 55), `Coletando ${copied} de ${included.length} arquivos.`);
     }
     const metadata = await inspectInstallation(config.serverRoot);
     const manifest = {
-      format: 'craftsystem-host-switch', formatVersion: 1,
+      format: 'craftsystem-host-switch', formatVersion: 2,
       server: metadata,
       export: { createdAt: new Date().toISOString(), sourceId: crypto.createHash('sha256').update(config.serverRoot).digest('hex').slice(0, 16), files },
       policy: policyDescription,
-      report: { excluded, unexpected, warnings },
+      report: { excluded, unexpected, warnings, source: config.sourceReport ? { originalName: config.sourceReport.originalName, wrapper: config.sourceReport.wrapper } : undefined },
     };
     await fsp.writeFile(path.join(work, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
     operation.update('packing', 65, 'Criando o pacote de migração.');
@@ -45,7 +50,7 @@ export async function exportServer(config, operation) {
     const stamp = new Date().toISOString().replace(/[-:]/g, '').replace('T', '-').slice(0, 15);
     const finalPath = path.join(config.dataRoot, 'exports', `TechRevolution-migration-${stamp}.zip`);
     temporary = `${finalPath}.${crypto.randomUUID()}.partial`;
-    await makeArchive(work, temporary, files, operation);
+    await makeArchive(work, temporary, files, operation, config.immutableSource ? config.serverRoot : null);
     operation.update('validating', 92, 'Validando hashes do pacote finalizado.');
     await validatePackage(temporary, {
       extract: false,
@@ -86,7 +91,17 @@ async function stableCopy(sourceRoot, targetRoot, relative, config) {
   return { path: relative, size: before.size, sha256: hash.digest('hex'), mode: before.mode & 0o777 };
 }
 
-function makeArchive(work, outputPath, files, operation) {
+async function hashStableFile(sourceRoot, relative) {
+  const source = path.join(sourceRoot, ...relative.split('/'));
+  const before = await fsp.stat(source);
+  const hash = crypto.createHash('sha256');
+  for await (const chunk of fs.createReadStream(source)) hash.update(chunk);
+  const after = await fsp.stat(source);
+  if (before.size !== after.size || before.mtimeMs !== after.mtimeMs) throw Object.assign(new Error(`O arquivo mudou durante a exportação: ${relative}`), { code: 'SOURCE_CHANGED' });
+  return { path: relative, size: before.size, sha256: hash.digest('hex'), mode: before.mode & 0o777 };
+}
+
+function makeArchive(work, outputPath, files, operation, sourceRoot = null) {
   return new Promise((resolve, reject) => {
     const output = fs.createWriteStream(outputPath, { flags: 'wx' });
     const archive = archiver('zip', { zlib: { level: 1 }, forceZip64: true });
@@ -101,10 +116,10 @@ function makeArchive(work, outputPath, files, operation) {
       operation.update('packing', 65 + Math.floor(ratio * 26), `Compactando ${formatBytes(progress.processedBytes)} de ${formatBytes(totalBytes)}.`);
     });
     archive.pipe(output);
-    archive.file(path.join(work, 'manifest.json'), { name: 'manifest.json' });
+    archive.file(path.join(work, 'manifest.json'), { name: '.craftsystem/manifest.json' });
     for (const file of files) {
-      archive.file(path.join(work, 'payload', ...file.path.split('/')), {
-        name: `payload/${file.path}`,
+      archive.file(path.join(sourceRoot || path.join(work, 'payload'), ...file.path.split('/')), {
+        name: file.path,
         store: isAlreadyCompressed(file.path),
       });
     }

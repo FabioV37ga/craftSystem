@@ -61,6 +61,10 @@ const serverState = document.querySelector('[data-server-state]');
 const operationState = document.querySelector('[data-operation-state]');
 const progress = document.querySelector('[data-progress]');
 const hostMessage = document.querySelector('[data-host-message]');
+const commonFile = document.querySelector('[data-common-file]');
+const commonFileName = document.querySelector('[data-common-file-name]');
+const normalizeButton = document.querySelector('[data-normalize]');
+const normalizationStatus = document.querySelector('[data-normalization-status]');
 const importFile = document.querySelector('[data-import-file]');
 const fileName = document.querySelector('[data-file-name]');
 const validateButton = document.querySelector('[data-validate]');
@@ -89,6 +93,7 @@ async function api(url, options = {}) {
 
 function setBusy(busy) {
   exportButton.disabled = busy || !hostToken.value.trim();
+  normalizeButton.disabled = busy || !commonFile.files.length || !hostToken.value.trim();
   validateButton.disabled = busy || !importFile.files.length || !hostToken.value.trim();
   restoreButton.disabled = busy;
 }
@@ -116,6 +121,29 @@ exportButton.addEventListener('click', async () => {
   } catch (error) { hostMessage.textContent = error.message; setBusy(false); }
 });
 
+commonFile.addEventListener('change', () => {
+  commonFileName.textContent = commonFile.files[0]?.name || 'Nenhum arquivo selecionado';
+  normalizeButton.disabled = !commonFile.files.length || !hostToken.value.trim();
+  normalizationStatus.textContent = commonFile.files.length ? 'ZIP comum pronto para envio.' : 'O CraftSystem criará o manifesto e o pacote compatível.';
+});
+
+normalizeButton.addEventListener('click', async () => {
+  try {
+    setBusy(true);
+    downloadButton.hidden = true;
+    operationState.textContent = 'Enviando ZIP comum';
+    progress.style.width = '0%';
+    const operation = await uploadPackage(commonFile.files[0], 'normalization', normalizationStatus);
+    const complete = await watchOperation(operation.id);
+    if (complete.state === 'ready') normalizationStatus.textContent = 'Pacote compatível pronto para download.';
+  } catch (error) {
+    hostMessage.textContent = error.message;
+    normalizationStatus.textContent = `Falha: ${error.message}`;
+    operationState.textContent = 'Falhou';
+    setBusy(false);
+  }
+});
+
 importFile.addEventListener('change', () => {
   fileName.textContent = importFile.files[0]?.name || 'Nenhum arquivo selecionado';
   validateButton.disabled = !importFile.files.length || !hostToken.value.trim();
@@ -130,7 +158,7 @@ validateButton.addEventListener('click', async () => {
     validationReport.hidden = true;
     operationState.textContent = 'Enviando pacote';
     progress.style.width = '0%';
-    const operation = await uploadPackage(importFile.files[0]);
+    const operation = await uploadPackage(importFile.files[0], 'validation', validationStatus);
     const complete = await watchOperation(operation.id);
     if (complete.state === 'awaiting-confirmation') showValidation(complete);
   } catch (error) {
@@ -158,6 +186,7 @@ async function watchOperation(id) {
     progress.style.width = `${operation.progress}%`;
     hostMessage.textContent = operation.error?.message || operation.message;
     if (operation.kind === 'validation') validationStatus.textContent = operation.error?.message || operation.message;
+    if (operation.kind === 'normalization') normalizationStatus.textContent = operation.error?.message || operation.message;
     if (['ready', 'awaiting-confirmation', 'completed', 'failed'].includes(operation.state)) {
       setBusy(false);
       if (operation.state === 'ready') {
@@ -170,12 +199,12 @@ async function watchOperation(id) {
   }
 }
 
-async function uploadPackage(file) {
+async function uploadPackage(file, purpose, statusElement) {
   if (!file) throw new Error('Selecione um pacote ZIP.');
   let uploadId;
   try {
     const session = await (await api('/api/host-switch/imports/uploads', {
-      method: 'POST', body: JSON.stringify({ name: file.name, size: file.size }),
+      method: 'POST', body: JSON.stringify({ name: file.name, size: file.size, purpose }),
     })).json();
     uploadId = session.id;
     let sent = 0;
@@ -189,9 +218,9 @@ async function uploadPackage(file) {
       index++;
       const percent = Math.min(Math.round((sent / file.size) * 100), 100);
       progress.style.width = `${percent}%`;
-      validationStatus.textContent = `Enviando pacote: ${percent}% (${formatBytes(sent)} de ${formatBytes(file.size)}).`;
+      statusElement.textContent = `Enviando pacote: ${percent}% (${formatBytes(sent)} de ${formatBytes(file.size)}).`;
     }
-    validationStatus.textContent = 'Upload concluído. Iniciando validação...';
+    statusElement.textContent = purpose === 'normalization' ? 'Upload concluído. Padronizando o ZIP...' : 'Upload concluído. Iniciando validação...';
     const operation = await (await api(`/api/host-switch/imports/uploads/${uploadId}/complete`, { method: 'POST' })).json();
     uploadId = undefined;
     return operation;
@@ -240,5 +269,5 @@ function showValidation(operation) {
   restoreBox.hidden = compatibility.blockers.length > 0;
 }
 
-const labels = { waiting: 'Aguardando', preparing: 'Preparando exportação', packing: 'Compactando', validating: 'Validando pacote', ready: 'Pronto para download', 'awaiting-confirmation': 'Aguardando confirmação', restoring: 'Restaurando', completed: 'Concluído', failed: 'Falhou' };
+const labels = { waiting: 'Aguardando', inspecting: 'Inspecionando ZIP', extracting: 'Extraindo arquivos permitidos', preparing: 'Preparando exportação', packing: 'Compactando', validating: 'Validando pacote', ready: 'Pronto para download', 'awaiting-confirmation': 'Aguardando confirmação', restoring: 'Restaurando', completed: 'Concluído', failed: 'Falhou' };
 function formatBytes(bytes) { return new Intl.NumberFormat('pt-BR', { style: 'unit', unit: 'megabyte', maximumFractionDigits: 1 }).format(bytes / 1024 / 1024); }

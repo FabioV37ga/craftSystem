@@ -7,6 +7,7 @@ import multer from 'multer';
 import { getConfig } from './config.js';
 import { exportServer } from './exporter.js';
 import { validatePackage, restorePackage } from './importer.js';
+import { normalizeCommonZip } from './normalizer.js';
 import { OperationStore } from './operations.js';
 import { repairServerAccessIfNeeded } from './permissions.js';
 import { ensureToken, rejectCrossOrigin, requireToken } from './security.js';
@@ -68,7 +69,7 @@ export async function createApp(overrides = {}) {
 
   app.post('/api/host-switch/exports/:id/download-ticket', async (req, res) => {
     const operation = operations.get(req.params.id);
-    if (!operation || operation.kind !== 'export' || operation.state !== 'ready' || !operation.result?.packagePath) return res.status(404).json({ error: 'Pacote não disponível.' });
+    if (!operation || !['export', 'normalization'].includes(operation.kind) || operation.state !== 'ready' || !operation.result?.packagePath) return res.status(404).json({ error: 'Pacote não disponível.' });
     try {
       await fs.access(operation.result.packagePath);
       res.json({ ticket: operations.issueDownloadTicket(operation.id), expiresInSeconds: 900 });
@@ -94,12 +95,13 @@ export async function createApp(overrides = {}) {
       if (uploads.size) return res.status(409).json({ error: 'Já existe um upload em andamento.' });
       const size = Number(req.body?.size);
       const originalName = path.basename(String(req.body?.name || '')).slice(0, 180);
+      const purpose = req.body?.purpose === 'normalization' ? 'normalization' : 'validation';
       if (!originalName || !Number.isSafeInteger(size) || size <= 0) return res.status(400).json({ error: 'Nome ou tamanho do pacote inválido.' });
       if (size > config.maxUploadBytes) return res.status(413).json({ error: 'O upload excede o limite configurado.' });
       const id = crypto.randomUUID();
       const packagePath = path.join(config.dataRoot, 'uploads', `${id}.partial`);
       await fs.writeFile(packagePath, '', { flag: 'wx', mode: 0o600 });
-      uploads.set(id, { id, packagePath, originalName, size, received: 0, nextChunk: 0, writing: false });
+      uploads.set(id, { id, packagePath, originalName, purpose, size, received: 0, nextChunk: 0, writing: false });
       res.status(201).json({ id, chunkBytes: UPLOAD_CHUNK_BYTES });
     } catch (error) { next(error); }
   });
@@ -125,10 +127,11 @@ export async function createApp(overrides = {}) {
     const session = uploads.get(req.params.id);
     if (!session) return res.status(404).json({ error: 'Upload não encontrado ou expirado.' });
     if (session.writing || session.received !== session.size) return res.status(409).json({ error: `Upload incompleto: ${session.received} de ${session.size} bytes.` });
-    const operation = operations.create('validation');
+    const operation = operations.create(session.purpose);
     try { operations.acquire(operation); } catch (error) { return next(error); }
     uploads.delete(session.id);
-    beginValidation(operation, session.packagePath, session.originalName, res);
+    if (session.purpose === 'normalization') beginNormalization(operation, session.packagePath, session.originalName, res);
+    else beginValidation(operation, session.packagePath, session.originalName, res);
   });
 
   app.delete('/api/host-switch/imports/uploads/:id', async (req, res, next) => {
@@ -184,6 +187,15 @@ export async function createApp(overrides = {}) {
       .catch((error) => { fail(operation, error); audit('validation.failed', operation); fs.rm(operation.packagePath, { force: true }).catch(() => {}); })
       .finally(() => operations.release(operation));
   }
+
+  function beginNormalization(operation, packagePath, originalName, res) {
+    audit('normalization.started', operation);
+    res.status(202).json(operations.public(operation));
+    normalizeCommonZip(config, packagePath, originalName, operation)
+      .then(() => audit('normalization.ready', operation))
+      .catch((error) => { fail(operation, error); audit('normalization.failed', operation); })
+      .finally(() => operations.release(operation));
+  }
 }
 
 function fail(operation, error) {
@@ -203,7 +215,7 @@ function audit(event, operation) {
 
 async function sendExport(operations, id, req, res, next) {
   const operation = operations.get(id);
-  if (!operation || operation.kind !== 'export' || operation.state !== 'ready' || !operation.result?.packagePath) return res.status(404).json({ error: 'Pacote não disponível.' });
+  if (!operation || !['export', 'normalization'].includes(operation.kind) || operation.state !== 'ready' || !operation.result?.packagePath) return res.status(404).json({ error: 'Pacote não disponível.' });
   return streamPackage(operation.result.packagePath, operation.result.packageName, req, res, next);
 }
 

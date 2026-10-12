@@ -1,9 +1,10 @@
 import path from 'node:path';
 
 export const POLICY_VERSION = 1;
-const excludedSegments = new Set(['logs', 'crash-reports', 'debug', 'backups', 'manual-backups', '.mixin.out']);
+const excludedSegments = new Set(['logs', 'crash-reports', 'debug', 'backups', 'manual-backups', '.mixin.out', '.host-switch', '.craftsystem']);
 const cacheNames = new Set(['cache', 'caches', '.cache', 'modernfix']);
 const transientExtensions = new Set(['.log', '.tmp', '.lck', '.lock', '.pid']);
+const systemArtifacts = new Set(['.ds_store', 'thumbs.db', 'desktop.ini']);
 const secretPattern = /(^|[._-])(secret|token|credential|password|passwd)([._-]|$)|^\.env($|\.)/i;
 const knownRoots = new Set([
   'world', 'config', 'defaultconfigs', 'configureddefaults', 'localconfigs', 'local', 'mods', 'plugins', 'kubejs',
@@ -16,6 +17,7 @@ export function classify(relativePath) {
   const normalized = relativePath.split(path.sep).join('/');
   const parts = normalized.split('/');
   const base = parts.at(-1);
+  if (parts[0].toLowerCase() === '__macosx' || systemArtifacts.has(base.toLowerCase())) return { include: false, reason: 'metadado do sistema operacional' };
   if (parts.some((part) => excludedSegments.has(part) || cacheNames.has(part.toLowerCase()))) {
     return { include: false, reason: 'regenerável, log ou backup anterior' };
   }

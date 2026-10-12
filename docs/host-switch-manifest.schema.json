@@ -1,13 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://craftsystem.local/schemas/host-switch-manifest-v1.json",
-  "title": "CraftSystem Host Switch manifest v1",
+  "$id": "https://craftsystem.local/schemas/host-switch-manifest.json",
+  "title": "CraftSystem Host Switch manifest",
   "type": "object",
   "required": ["format", "formatVersion", "server", "export", "policy", "report"],
   "additionalProperties": false,
   "properties": {
     "format": { "const": "craftsystem-host-switch" },
-    "formatVersion": { "const": 1 },
+    "formatVersion": { "enum": [1, 2] },
     "server": {
       "type": "object",
       "required": ["minecraftVersion", "software", "softwareVersion", "javaVersion", "components"],

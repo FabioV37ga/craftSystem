@@ -100,6 +100,15 @@
             <button class="button button--primary" type="button" data-export disabled>PREPARAR EXPORTAÇÃO</button>
             <button class="button" type="button" data-download hidden>BAIXAR PACOTE</button>
           </div>
+          <div class="common-zip">
+            <p><b>Outro computador</b> — envie um ZIP comum contendo a pasta completa do servidor.</p>
+            <label class="file-picker" for="common-server-package">
+              <input id="common-server-package" type="file" accept=".zip,application/zip" data-common-file />
+              <span>Selecionar ZIP comum</span><small data-common-file-name>Nenhum arquivo selecionado</small>
+            </label>
+            <button class="compact-button" type="button" data-normalize disabled>PADRONIZAR ZIP</button>
+            <p class="validation-status" data-normalization-status role="status" aria-live="polite">O CraftSystem criará o manifesto e o pacote compatível.</p>
+          </div>
         </article>
 
         <article class="host-card">

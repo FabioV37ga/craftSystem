@@ -10,8 +10,10 @@ import request from 'supertest';
 import { createApp } from '../server/app.js';
 import { exportServer } from '../server/exporter.js';
 import { validatePackage, restorePackage } from '../server/importer.js';
+import { normalizeCommonZip } from '../server/normalizer.js';
 import { OperationStore } from '../server/operations.js';
 import { validateArchivePath } from '../server/paths.js';
+import { scanZip } from '../server/zip.js';
 
 const stopped = async () => ({ state: 'stopped', source: 'test', message: 'parado' });
 const running = async () => ({ state: 'running', source: 'test', message: 'ligado' });
@@ -27,7 +29,12 @@ test('exporta estrutura válida, arquivo oculto e hashes verificáveis', async (
   const op = operation();
   await exportServer({ ...root, stateProvider: stopped }, op);
   const report = await validatePackage(op.result.packagePath);
+  const archiveEntries = (await scanZip(op.result.packagePath)).filter((item) => !item.directory).map((item) => item.entry.fileName);
   assert.equal(report.valid, true);
+  assert.equal(report.manifest.formatVersion, 2);
+  assert(archiveEntries.includes('.craftsystem/manifest.json'));
+  assert(archiveEntries.includes('world/level.dat'));
+  assert(!archiveEntries.some((name) => name.startsWith('payload/')));
   assert(report.manifest.export.files.some((file) => file.path === '.gitattributes'));
   assert(!report.manifest.export.files.some((file) => file.path.startsWith('logs/')));
 });
@@ -38,6 +45,25 @@ test('exportação não depende do estado do servidor', async (t) => {
   const op = operation();
   await exportServer({ ...root, stateProvider: async () => { throw new Error('não deve consultar o estado'); } }, op);
   assert.equal(op.state, 'ready');
+});
+
+test('normaliza ZIP comum com pasta-raiz e aplica a política de arquivos', async (t) => {
+  const root = await fixture(t);
+  const file = await rawZip(root.base, {
+    'Servidor Completo/server.properties': 'motd=test',
+    'Servidor Completo/world/level.dat': 'world-state',
+    'Servidor Completo/logs/latest.log': 'excluded',
+  });
+  const op = operation();
+  await normalizeCommonZip(root, file, 'servidor-completo.zip', op);
+  assert.equal(op.state, 'ready');
+  const report = await validatePackage(op.result.packagePath);
+  assert(report.manifest.export.files.some((entry) => entry.path === 'server.properties'));
+  assert(report.manifest.export.files.some((entry) => entry.path === 'world/level.dat'));
+  assert(!report.manifest.export.files.some((entry) => entry.path.startsWith('Servidor Completo/')));
+  assert(!report.manifest.export.files.some((entry) => entry.path.startsWith('logs/')));
+  assert.equal(report.manifest.report.source.wrapper, 'Servidor Completo');
+  assert(report.manifest.report.excluded.some((entry) => entry.path === 'logs/latest.log'));
 });
 
 test('rejeita manifesto inválido, hash incorreto e arquivo ausente', async (t) => {
@@ -129,6 +155,31 @@ test('upload em blocos evita requisição única para pacote grande', async (t) 
   }
   assert.equal(validation.state, 'awaiting-confirmation');
   assert.equal(validation.result.report.valid, true);
+});
+
+test('upload em blocos transforma ZIP comum em pacote pronto para extração', async (t) => {
+  const root = await fixture(t);
+  const file = await rawZip(root.base, { 'Servidor/server.properties': 'motd=test', 'Servidor/world/level.dat': 'world-state' });
+  const contents = await fsp.readFile(file);
+  const { app, operations } = await createApp({ ...root, token: 'test-token', stateProvider: stopped });
+  const initialized = await request(app).post('/api/host-switch/imports/uploads').set('x-host-switch-token', 'test-token').send({ name: 'servidor.zip', size: contents.length, purpose: 'normalization' });
+  assert.equal(initialized.status, 201);
+  assert.equal((await request(app)
+    .put(`/api/host-switch/imports/uploads/${initialized.body.id}/chunks/0`)
+    .set('x-host-switch-token', 'test-token')
+    .set('content-type', 'application/octet-stream')
+    .send(contents)).status, 200);
+  const completed = await request(app).post(`/api/host-switch/imports/uploads/${initialized.body.id}/complete`).set('x-host-switch-token', 'test-token');
+  assert.equal(completed.status, 202);
+  let normalized;
+  for (let attempt = 0; attempt < 100; attempt++) {
+    normalized = operations.get(completed.body.id);
+    if (['ready', 'failed'].includes(normalized.state)) break;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  assert.equal(normalized.state, 'ready');
+  assert.equal(normalized.result.manifest.formatVersion, 2);
+  assert.equal((await request(app).post(`/api/host-switch/exports/${normalized.id}/download-ticket`).set('x-host-switch-token', 'test-token')).status, 200);
 });
 
 test('API exige token, confirmação explícita e impede operações concorrentes', async (t) => {
@@ -234,6 +285,16 @@ async function packageZip(t, base, entries, options = {}) {
   const files = Object.entries(entries).map(([name, content], index) => index === 0 && options.hashOverride ? { ...record(name, content), sha256: options.hashOverride } : record(name, content));
   const payload = options.omitPayload ? {} : Object.fromEntries(Object.entries(entries).map(([name, content]) => [`payload/${name}`, content]));
   return zip(t, base, { manifest: validManifest(files, options.minecraftVersion), entries: payload });
+}
+async function rawZip(base, entries) {
+  const file = path.join(base, `${crypto.randomUUID()}.zip`);
+  await new Promise((resolve, reject) => {
+    const output = fs.createWriteStream(file); const archive = archiver('zip');
+    output.on('close', resolve); output.on('error', reject); archive.on('error', reject); archive.pipe(output);
+    for (const [name, content] of Object.entries(entries)) archive.append(content, { name });
+    archive.finalize();
+  });
+  return file;
 }
 async function zip(_t, base, { manifest, entries }) {
   const file = path.join(base, `${crypto.randomUUID()}.zip`);

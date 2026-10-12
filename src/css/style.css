@@ -91,6 +91,10 @@ h1 em { color: transparent; -webkit-text-stroke: 1.5px rgba(255,255,255,.82); fo
 .host-actions { display: flex; gap: 10px; flex-wrap: wrap; }
 .host-actions .button, .button--danger { min-height: 48px; font: 800 10px/1 var(--sans); letter-spacing: .04em; }
 .button--danger { border-color: #b24c42; background: #842f28; }
+.common-zip { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--line); }
+.common-zip > p:first-child { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.55; }
+.common-zip > p:first-child b { color: #cbd3ce; }
+.common-zip .file-picker { margin-top: 12px; }
 .file-picker { display: block; margin: 22px 0 14px; padding: 20px; border: 1px dashed rgba(255,255,255,.2); cursor: pointer; }
 .file-picker:hover { border-color: var(--green); }
 .file-picker input { position: absolute; width: 1px; height: 1px; opacity: 0; }

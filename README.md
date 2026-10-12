@@ -18,6 +18,8 @@ npm start
 
 O serviço publica a landing compilada e a API do Host Switch. A exportação não depende do estado da instância; antes de restaurar, configure a verificação real conforme o [manual do Host Switch](docs/host-switch.md).
 
+Outros computadores não precisam deste repositório: podem enviar um ZIP comum da pasta do servidor para a opção **Padronizar ZIP**. O CraftSystem gera um pacote v2 verificável e pronto para extração direta no próximo host.
+
 ## Verificações
 
 ```bash
